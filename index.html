@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>印斯茅斯的阴影 - 增强版</title>
+    <style>
+        body { background: #050505; color: #8e9e9e; font-family: 'Courier New', serif; display: flex; justify-content: center; padding: 40px; line-height: 1.6; }
+        #game-box { max-width: 700px; border: 1px solid #2c3e50; padding: 40px; background: #0d1117; position: relative; min-height: 400px; }
+        h1 { color: #4e6a6a; font-size: 1.5rem; text-shadow: 0 0 5px #000; }
+        #status-bar { margin-bottom: 30px; border-bottom: 1px solid #222; padding-bottom: 10px; font-size: 0.9rem; }
+        .san-label { color: #a30000; }
+        #story-text { min-height: 120px; margin-bottom: 30px; font-size: 1.1rem; color: #bdc3c7; }
+        .option-btn { display: block; width: 100%; padding: 15px; margin: 10px 0; background: #161b22; color: #8e9e9e; border: 1px solid #30363d; cursor: pointer; text-align: left; transition: 0.2s; }
+        .option-btn:hover { background: #21262d; border-color: #58a6ff; color: #fff; }
+        .option-btn:disabled { color: #444; border-color: #222; cursor: not-allowed; }
+        /* 理智值过低视觉特效 */
+        .insane-bg { animation: flicker 0.1s infinite; }
+        @keyframes flicker { 0% { opacity: 0.97; } 50% { opacity: 1; } 100% { opacity: 0.98; } }
+    </style>
+</head>
+<body>
+
+<div id="game-box">
+    <div id="status-bar">
+        [ 调查员状态 ] <br>
+        理智值 (SAN): <span id="san-value" class="san-label">100</span> | 
+        背包: <span id="inventory-list">空无一物</span>
+    </div>
+    <div id="story-text"></div>
+    <div id="options-box"></div>
+</div>
+
+<script>
+    // 1. 初始状态
+    let state = {
+        san: 100,
+        inventory: [],
+        isTyping: false // 防止打字时重复点击
+    };
+
+    // 2. 剧本数据
+    const story = {
+        entrance: {
+            text: "你站在码头的尽头。海浪拍打着腐烂的木桩，发出类似吮吸的声音。那个畸形的身影向你伸出了粘稠的手……",
+            options: [
+                { text: "尝试交流（进行理智检定）", next: "talk_to_creature", checkSan: true },
+                { text: "溜进旁边的废弃仓库", next: "warehouse" }
+            ]
+        },
+        talk_to_creature: {
+            text: "他张开嘴，发出的不是人类的语言，而是某种湿润的、滑溜的声音。他递给你一把生锈的铜钥匙。",
+            action: () => addItem("生锈的钥匙"),
+            options: [
+                { text: "拿上钥匙并离开", next: "warehouse" }
+            ]
+        },
+        warehouse: {
+            text: "仓库里堆满了散发鱼腥味的木箱。深处有一扇被重重锁住的铁门。",
+            options: [
+                { text: "用钥匙打开铁门", next: "secret_room", require: "生锈的钥匙" },
+                { text: "原路返回码头", next: "entrance" }
+            ]
+        },
+        secret_room: {
+            text: "门开了。里面是一座巨大的祭坛，不可名状的阴影在墙壁上蠕动……你看到了真相。",
+            options: [
+                { text: "面对深渊", next: "ending" }
+            ]
+        },
+        ending: {
+            text: "你的理智在真相面前脆弱得像一张纸。你狂笑着，跳入了冰冷的海水中。",
+            options: [{ text: "重新开始调查", next: "restart" }]
+        }
+    };
+
+    // 3. 打字机效果函数
+    function typeWriter(text, i, fnCallback) {
+        if (i < text.length) {
+            document.getElementById('story-text').innerHTML = text.substring(0, i+1) + '<span aria-hidden="true">_</span>';
+            setTimeout(() => typeWriter(text, i + 1, fnCallback), 30);
+        } else if (typeof fnCallback == 'function') {
+            document.getElementById('story-text').innerHTML = text; // 移除光标
+            fnCallback();
+        }
+    }
+
+    // 4. 更新页面逻辑
+    function render(nodeId) {
+        if (nodeId === 'restart') return location.reload();
+        
+        const node = story[nodeId];
+        state.isTyping = true;
+        
+        // 清空选项，等待打字完成
+        document.getElementById('options-box').innerHTML = '';
+        
+        // 执行节点自带的动作（如捡物品）
+        if (node.action) node.action();
+
+        // 触发打字机
+        typeWriter(node.text, 0, () => {
+            state.isTyping = false;
+            showOptions(node.options);
+        });
+
+        updateStatus();
+    }
+
+    function showOptions(options) {
+        const box = document.getElementById('options-box');
+        options.forEach(opt => {
+            const btn = document.createElement('button');
+            btn.className = 'option-btn';
+            
+            // 检查是否有物品限制
+            const hasRequirement = !opt.require || state.inventory.includes(opt.require);
+            btn.innerText = opt.text + (opt.require && !hasRequirement ? " (缺少: " + opt.require + ")" : "");
+            btn.disabled = !hasRequirement;
+
+            btn.onclick = () => {
+                if (opt.checkSan) {
+                    performSanityCheck();
+                }
+                render(opt.next);
+            };
+            box.appendChild(btn);
+        });
+    }
+
+    // 5. 核心功能函数
+    function addItem(item) {
+        if (!state.inventory.includes(item)) state.inventory.push(item);
+    }
+
+    function performSanityCheck() {
+        const roll = Math.floor(Math.random() * 100) + 1;
+        alert(`系统检定：掷骰结果为 ${roll} / 当前理智为 ${state.san}`);
+        if (roll > state.san) {
+            state.san -= 20;
+            alert("检定失败！你感受到了剧烈的精神冲击。理智 -20");
+        } else {
+            state.san -= 5;
+            alert("检定成功。虽然恐惧，但你勉强保持了冷静。理智 -5");
+        }
+    }
+
+    function updateStatus() {
+        document.getElementById('san-value').innerText = state.san;
+        document.getElementById('inventory-list').innerText = state.inventory.join(', ') || '空无一物';
+        if (state.san < 40) document.body.classList.add('insane-bg');
+    }
+
+    // 启动
+    render('entrance');
+
+</script>
+
+</body>
+</html>
